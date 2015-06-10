@@ -12,6 +12,8 @@ $Statements += 'DoUntilStatementAst'
 $Statements += 'DoWhileStatementAst'
 $Statements += 'WhileStatementAst'
 
+$Output = @()
+
 Add-Type -TypeDefinition @"
 using System;
 using System.Collections.Generic;
@@ -25,9 +27,9 @@ namespace ThinkMS.PowerShell.PSAnalysis
     {
         Unknown = 0,
         Script = 1,
-        FunctionDeclaration = 2,
+        FunctionDefinition = 2,
         Function = 3,
-        Cmdlet = 4,
+        Command = 4,
         Statement = 5
     }
 
@@ -44,6 +46,24 @@ namespace ThinkMS.PowerShell.PSAnalysis
         public Token() {
             this.Childs = new List<Token>();
             this.Type = TokenType.Unknown;
+        }
+
+        public Token(TokenType type, string name) {
+            this.Childs = new List<Token>();
+            this.Type = TokenType.Unknown;
+            this.Type = type;
+            this.Name = name;
+        }
+
+        public Token(TokenType type, string name, int startLineNbr, int endLineNbr, int startColumnNbr, int endColumnNbr) {
+            this.Childs = new List<Token>();
+            this.Type = TokenType.Unknown;
+            this.Type = type;
+            this.Name = name;
+            this.StartLineNbr = startLineNbr;
+            this.EndLineNbr = endLineNbr;
+            this.StartColumnNbr = startColumnNbr;
+            this.EndColumnNbr = endColumnNbr;
         }
     }
 }
@@ -63,16 +83,22 @@ Function Analyse-PowerShell {
             $ScriptPath = $_.FullName
             $ScriptName = $_.Name
 
+            
+
+            $Output += (New-Object ThinkMS.PowerShell.PSAnalysis.Token -ArgumentList ('Script', $ScriptPath))
 
             $AST = [System.Management.Automation.Language.Parser]::ParseFile($ScriptPath, [ref]$tokens, [ref]$errors)
 
+            $AST
+
             Write-Host $ScriptPath -ForegroundColor Green
 
-            Analyse-PSFunction -AST $AST
+            $Output.Childs.AddRange((Analyse-PSFunction -AST $AST))
         }
     }
 
     End {
+        $Output
     }
 }
 
@@ -85,32 +111,62 @@ Function Analyse-PSFunction {
     $AST.FindAll({$true}, $false) `
     | ForEach-Object {
         $ObjectAST = $_
+        $Output = $null
 
         Switch ($ObjectAST.GetType().Name) {
+            {($Statements -contains $_) -or ($_ -eq 'FunctionDefinitionAst') -or ($_ -eq 'CommandAst' -and $ObjectAST.InvocationOperator -ne 'Dot')} {
+                $Output = (New-Object ThinkMS.PowerShell.PSAnalysis.Token -ArgumentList ('Unknown', 'Null', $ObjectAST.Extent.StartLineNumber, $ObjectAST.Extent.EndLineNumber, $ObjectAST.Extent.StartColumnNumber, $ObjectAST.Extent.EndColumnNumber))
+            }
+
             'FunctionDefinitionAst' {
+                #Function
+                $Output.Type = 'FunctionDefinition'
+                $Output.Name = $ObjectAST.Name
                 Write-Host "$('  ' * ($Depth+$Stack.Count))$($ObjectAST.Name)" -ForegroundColor Red
-                Analyse-PSFunction -AST $ObjectAST.Body -Depth ($Depth + 1)
+                $Output.Childs.AddRange((Analyse-PSFunction -AST $ObjectAST.Body -Depth ($Depth + 1)))
             }
 
             {$_ -eq 'CommandAst' -and $ObjectAST.InvocationOperator -ne 'Dot'} {
                 $CommandName = $ObjectAST.CommandElements[0]
+                $Output.Name = $CommandName.Value
 
                 If ($AllCommands -contains $CommandName) {
+                    # Loaded cmdlet
+                    $Output.Type = 'Command'
                     Write-Host "$('  ' * ($Depth+$Stack.Count))$CommandName" -ForegroundColor Gray 
                 } Else {
+                    # External cmdlet/function
+                    $Output.Type = 'Function'
+                
                     Write-Host "$('  ' * ($Depth+$Stack.Count))$CommandName" -ForegroundColor Magenta
-                }          
+                }
+
+                If ($CommandName.Value -eq 'ForEach-Object' -or $CommandName.Value -eq 'Where-Object') {
+                    $Output.Childs.AddRange((Analyse-PSFunction -AST $ObjectAST.CommandElements[1].ScriptBlock -Depth ($Depth + 1)))
+                }
+
+                $Stack.Peek().Childs.Add($Output)    
             }
 
             {$Statements -contains $_} {
-                If ($Stack.Count -ne 0 -and ($Stack.Peek().Values[0].Get(1) -lt $ObjectAST.Extent.StartLineNumber)) {
+                # Statement (if/switch/for/foreach/while/dowhile/dountil)
+                $Output.Type = 'Statement'
+                $Output.Name = $_.Replace('StatementAst','')
+
+                While ($Stack.Count -ne 0 -and ($Stack.Peek().EndLineNbr -lt $ObjectAST.Extent.StartLineNumber)) {
                     $Stack.Pop() | Out-Null   
                 }
                 
                 Write-Host "$("  " * (($Depth + $Stack.Count)))$($_.Replace('StatementAst',''))"
-                $Stack.Push(@{$_ = @($ObjectAST.Extent.StartLineNumber, $ObjectAST.Extent.EndLineNumber, $ObjectAST.Extent.StartColumnNumber, $ObjectAST.Extent.EndColumnNumber)})
+                $Stack.Push($Output)
+                
+                
+                
+                #@($ObjectAST.Extent.StartLineNumber, $ObjectAST.Extent.EndLineNumber, $ObjectAST.Extent.StartColumnNumber, $ObjectAST.Extent.EndColumnNumber)})
             }
         }
+
+        $Output
     }
 }
 

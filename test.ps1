@@ -8,6 +8,17 @@ Function Write-Log {
     Get-Item | Add-Content
 }
 
+if ($false) {
+    $a | ForEach-Object {
+        foreach ($a in $b) {
+            if($true) {
+
+            }
+        }
+    }
+}
+
+
 If ($true) {
     foreach ($item in $items) {
         
