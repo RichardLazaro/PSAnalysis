@@ -59,6 +59,7 @@ Get-ChildItem -LiteralPath "$($MyInvocation.MyCommand.Path.TrimEnd($MyInvocation
     . $_.Fullname
 }
 
+# TODO
 New-Variable -Name InstanciedCommand -Option AllScope -Value (Get-Command -All | Select-Object -ExpandProperty Name)
 
-Export-ModuleMember -Function Run-Analysis
+Export-ModuleMember -Function Start-Analysis

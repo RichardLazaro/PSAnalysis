@@ -1,4 +1,4 @@
-Function Run-Analysis {
+Function Start-Analysis {
     <#
         .NOTES
             Author  : Richard LAZARO
@@ -58,9 +58,15 @@ Function Run-Analysis {
 
             Write-Debug -Message "$FctName : Process file '$ScriptPath'"
 
-            $Token = New-Object ThinkMS.PowerShell.PSAnalysis.Token -ArgumentList ('Script', $ScriptPath)
+            $AST = [System.Management.Automation.Language.Parser]::ParseFile($ScriptPath, [ref]$null, [ref]$null)
 
-            $ChildToken = @(Get-Tokenization -FilePath $ScriptPath) -as [ThinkMS.PowerShell.PSAnalysis.Token[]]
+            $Token = New-Object ThinkMS.PowerShell.PSAnalysis.Token -ArgumentList ('Script', $ScriptPath)
+            $Token.StartLineNbr = $AST.Extent.StartLineNumber
+            $Token.EndLineNbr = $AST.Extent.EndLineNumber
+            $Token.StartColumnNbr = $AST.Extent.StartColumnNumber
+            $Token.EndColumnNbr = $AST.Extent.EndColumnNumber
+
+            $ChildToken = @(Get-Tokenization -FileAST $AST) -as [ThinkMS.PowerShell.PSAnalysis.Token[]]
 
             If ($ChildToken.Count -gt 0) {$Token.Childs.AddRange($ChildToken)}
             Write-Output -InputObject $Token
